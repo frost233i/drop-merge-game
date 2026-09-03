@@ -1,0 +1,750 @@
+/* ========== Reset & Base ========== */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-page: #f5e6d3;
+  --bg-top: #e8d5c4;
+  --bg-board: #5da4c4;
+  --cell-light: #9dd5e8;
+  --cell-dark: #89c9de;
+  --text-dark: #3a2e2c;
+  --text-muted: #8a7b6d;
+  --accent: #3b7dd8;
+  --accent-light: #5a9ae6;
+  --accent-dark: #2a5ba0;
+  --score-bg: rgba(255,255,255,0.45);
+  --cell-gap: 0px;
+  --board-radius: 10px;
+  --tile-color-1: #d4b896;
+  --tile-color-2: #c4a882;
+  --tile-color-3: #b89b76;
+  --tile-padding: 14px;
+  --tile-radius: 18px;
+  --preview-overlap: 26px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-dark);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ========== App Layout: two zones ========== */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  /* No outer padding — each zone handles its own */
+}
+
+/* ========== Top Zone: info/decoration ========== */
+.top-zone {
+  flex: 0 0 26%;
+  background: var(--bg-top) url('top图.jpg') center bottom / cover no-repeat;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+  padding-top: max(10px, env(safe-area-inset-top, 10px));
+  position: relative;
+}
+
+/* ========== Header inside top zone ========== */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+  padding-top: 6px;
+  flex-shrink: 0;
+}
+
+.scores {
+  display: flex;
+  gap: 6px;
+}
+
+.score-box {
+  background: var(--score-bg);
+  border-radius: 10px;
+  padding: 4px 12px;
+  text-align: center;
+  min-width: 58px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.score-label {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.score-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--accent-dark);
+  letter-spacing: 1px;
+}
+
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: var(--score-bg);
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.btn-icon:active {
+  transform: scale(0.92);
+  background: rgba(220,199,176,0.6);
+}
+
+/* ========== Game Zone (lower ~64%) ========== */
+.game-zone {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
+
+/* ========== Next Preview: overlaps zone boundary ========== */
+.next-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: calc(-1 * var(--preview-overlap));
+  padding-bottom: 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.next-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.next-block {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1rem;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+  transition: all 0.2s;
+}
+
+.next-block-small {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+/* ========== Tile Border (棕色瓷砖边框) ========== */
+.tile-border {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--tile-radius);
+  padding: var(--tile-padding);
+  display: flex;
+  flex-direction: column;
+  /* Multi-layer: tile grid lines + gradient */
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 24px,
+      rgba(255,255,255,0.08) 24px,
+      rgba(255,255,255,0.08) 25px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 24px,
+      rgba(255,255,255,0.08) 24px,
+      rgba(255,255,255,0.08) 25px
+    ),
+    linear-gradient(155deg, var(--tile-color-1), var(--tile-color-2) 40%, var(--tile-color-3));
+  box-shadow:
+    0 6px 20px rgba(0,0,0,0.15),
+    0 2px 6px rgba(0,0,0,0.08),
+    inset 0 2px 0 rgba(255,255,255,0.3),
+    inset 0 -2px 0 rgba(0,0,0,0.1),
+    inset 2px 0 0 rgba(255,255,255,0.15),
+    inset -2px 0 0 rgba(0,0,0,0.06);
+}
+
+/* ========== Arrow Buttons ========== */
+.arrow-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--cell-gap);
+  width: 100%;
+  flex-shrink: 0;
+  background: var(--bg-board);
+  border-radius: var(--board-radius) var(--board-radius) 0 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.arrow-btn {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 0;
+  color: transparent;
+  font-size: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.arrow-btn:nth-child(odd) {
+  background: var(--cell-light);
+}
+
+.arrow-btn:nth-child(even) {
+  background: var(--cell-dark);
+}
+
+/* Chevron (V-shape) downward arrow */
+.arrow-btn::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-right: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
+  border-radius: 0 0 3px 0;
+  transform: rotate(45deg);
+  margin-top: -4px;
+  transition: all 0.15s;
+}
+
+.arrow-btn:active {
+  transform: scale(0.9);
+}
+
+.arrow-btn:active::after {
+  border-color: var(--accent-dark);
+}
+
+.arrow-btn.disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ========== Game Board ========== */
+.board-wrapper {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 0;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: var(--cell-gap);
+  width: 100%;
+  aspect-ratio: 5 / 6;
+  max-height: 100%;
+  background: var(--bg-board);
+  border-radius: 0 0 var(--board-radius) var(--board-radius);
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Dashed judgment line between buffer row (row 0) and main area (rows 1-5) */
+.board::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: calc(100% / 6);
+  height: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ========== Checkerboard Cells ========== */
+.cell {
+  border-radius: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.cell:nth-child(odd) {
+  background: var(--cell-light);
+}
+
+.cell:nth-child(even) {
+  background: var(--cell-dark);
+}
+
+.cell.buffer-cell {
+  opacity: 0.7;
+}
+
+/* ========== Block inside cell ========== */
+.block {
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15),
+              inset 0 1px 0 rgba(255,255,255,0.2);
+  will-change: transform;
+}
+
+.block.level-high {
+  font-size: 0.9rem;
+}
+
+/* ========== Animations ========== */
+@keyframes blockDrop {
+  0% { transform: translateY(-120%); opacity: 0; }
+  60% { transform: translateY(5%); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes blockMerge {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+@keyframes blockPop {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0); opacity: 0; }
+}
+
+@keyframes blockAppear {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.block.anim-drop {
+  animation: blockDrop 0.3s ease-out forwards;
+}
+
+.block.anim-merge {
+  animation: blockMerge 0.25s ease-out forwards;
+}
+
+.block.anim-pop {
+  animation: blockPop 0.2s ease-out forwards;
+}
+
+.block.anim-appear {
+  animation: blockAppear 0.25s ease-out forwards;
+}
+
+/* ========== Game Over Overlay ========== */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(232, 213, 196, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.overlay h2 {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+
+.overlay .final-score {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.btn-restart {
+  padding: 12px 40px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s;
+  box-shadow: 0 4px 12px rgba(59, 125, 216, 0.3);
+}
+
+.btn-restart:active {
+  transform: scale(0.95);
+}
+
+/* ========== Overflow Warning Overlay ========== */
+.overlay-warning {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.overlay-warning h2 {
+  color: #f0e0c8;
+  font-size: 1.5rem;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.warning-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.btn-warning-primary {
+  padding: 12px 32px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #34c759, #2ea84e);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s;
+  box-shadow: 0 4px 12px rgba(52, 199, 89, 0.35);
+}
+
+.btn-warning-primary:active {
+  transform: scale(0.95);
+}
+
+.btn-warning-secondary {
+  padding: 12px 32px;
+  border: 2px solid rgba(255,255,255,0.5);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.btn-warning-secondary:active {
+  transform: scale(0.95);
+}
+
+/* ========== Hand Card Button ========== */
+.hand-card-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.hand-card-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 3px 10px rgba(59, 125, 216, 0.3);
+}
+
+.hand-card-btn:active {
+  transform: scale(0.94);
+}
+
+.hand-card-btn.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.hand-card-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.hand-card-text {
+  letter-spacing: 1px;
+}
+
+/* ========== Hand Card Selection Overlay ========== */
+.hand-card-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.hand-card-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.hand-card-panel {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 0 0 18px 18px;
+  padding: 20px 16px 24px;
+  max-width: 400px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: panelSlideDown 0.25s ease-out;
+}
+
+@keyframes panelSlideDown {
+  0% { transform: translateY(-30px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.hand-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f0e0c8;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.hand-card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.hand-card-item {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.1rem;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s;
+  border: 3px solid transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.hand-card-item:active {
+  transform: scale(0.92);
+}
+
+.hand-card-item.selected {
+  border-color: #34c759;
+  box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.3), 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.hand-card-item.selected::after {
+  content: '✓';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #34c759;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.hand-card-confirm {
+  padding: 10px 48px;
+  border: none;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #f0e0c8;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+  letter-spacing: 2px;
+}
+
+.hand-card-confirm:active {
+  transform: scale(0.95);
+}
+
+.hand-card-confirm:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ========== Bath Brush (洗澡刷) ========== */
+.hand-card-btn.brush-active {
+  background: linear-gradient(135deg, #e6a817, #f0c040);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+}
+
+.board.brush-mode {
+  cursor: crosshair;
+}
+
+.cell.brush-highlight::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 215, 0, 0.3);
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  z-index: 3;
+  pointer-events: none;
+  animation: brushPulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes brushPulse {
+  0% { background: rgba(255, 215, 0, 0.2); }
+  100% { background: rgba(255, 215, 0, 0.4); }
+}
+
+/* ========== Floating score popup ========== */
+.score-popup {
+  position: absolute;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #d4851f;
+  pointer-events: none;
+  animation: floatUp 0.7s ease-out forwards;
+  z-index: 50;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+
+@keyframes floatUp {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-40px); opacity: 0; }
+}
+
+/* ========== Mobile adjustments ========== */
+@media (max-width: 400px) {
+  :root {
+    --tile-padding: 10px;
+    --tile-radius: 14px;
+    --board-radius: 8px;
+    --preview-overlap: 24px;
+  }
+  .game-zone { padding: 0 8px 6px; }
+  .game-title { font-size: 1.1rem; }
+  .score-box { padding: 3px 8px; min-width: 50px; }
+  .score-value { font-size: 0.9rem; }
+  .block { font-size: 1rem; }
+  .next-block { width: 40px; height: 40px; }
+  .next-block-small { width: 30px; height: 30px; }
+}
+
+@media (max-height: 700px) {
+  .top-zone { flex-basis: 22%; }
+  :root {
+    --tile-padding: 10px;
+    --preview-overlap: 22px;
+  }
+  .header { padding-top: 4px; }
+  .next-preview-row { padding-bottom: 5px; }
+  .next-block { width: 40px; height: 40px; }
+  .next-block-small { width: 28px; height: 28px; }
+}
+
+/* Extra tall screens (e.g. iPhone Pro Max) — give top zone more room */
+@media (min-height: 850px) {
+  .top-zone { flex-basis: 30%; }
+}
