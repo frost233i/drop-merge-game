@@ -30,7 +30,8 @@
 html, body {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: var(--bg-page);
   color: var(--text-dark);
@@ -52,7 +53,7 @@ html, body {
 
 /* ========== Top Zone: info/decoration ========== */
 .top-zone {
-  flex: 0 0 26%;
+  flex: 0 0 20%;
   background: var(--bg-top) url('top图.jpg') center bottom / cover no-repeat;
   display: flex;
   flex-direction: column;
@@ -733,7 +734,7 @@ html, body {
 }
 
 @media (max-height: 700px) {
-  .top-zone { flex-basis: 22%; }
+  .top-zone { flex-basis: 16%; }
   :root {
     --tile-padding: 10px;
     --preview-overlap: 22px;
@@ -746,5 +747,5 @@ html, body {
 
 /* Extra tall screens (e.g. iPhone Pro Max) — give top zone more room */
 @media (min-height: 850px) {
-  .top-zone { flex-basis: 30%; }
+  .top-zone { flex-basis: 24%; }
 }
