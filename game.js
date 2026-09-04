@@ -13,6 +13,23 @@
   const MAX_LEVEL = 44;
   const STORAGE_KEY = 'dropmerge_save';
 
+  // ===== Audio System =====
+  const bgm = new Audio('sounds/bgm(2).mp3');
+  bgm.loop = true;
+  bgm.volume = 0.3;
+  const sfxDrop = new Audio('sounds/下落音效(1).mp3');
+  sfxDrop.volume = 0.6;
+  const sfxMerge = new Audio('sounds/合成音效(1).mp3');
+  sfxMerge.volume = 0.6;
+  const sfxCheer = new Audio('sounds/欢呼声(1).mp3');
+  sfxCheer.volume = 0.7;
+  let bgmStarted = false;
+
+  function playSound(audio) {
+    audio.currentTime = 0;
+    audio.play().catch(function(){});
+  }
+
   // ===== Skin system: preload available skin images =====
   const skinImages = {}; // level -> Image object (only for loaded skins)
   const SKIN_PATH = 'skins/';
@@ -65,6 +82,13 @@
   let brushCenterRow = -1;
   let brushCenterCol = -1;
   let _brushBlockClick = false;
+
+  // Hammer state
+  let hammerMode = false;
+
+  // Swap state
+  let swapMode = false;
+  let swapFirstCell = null; // {row, col}
 
   // Cell DOM elements: cellEls[row][col]
   let cellEls = [];
@@ -244,19 +268,54 @@
   }
 
   // ===== Auto-eliminate blocks below minSpawnLevel =====
-  // Returns true if any blocks were eliminated
-  function eliminateBelowMin() {
-    let eliminated = false;
+  // Returns a Promise<boolean> — true if any blocks were eliminated
+  async function eliminateBelowMin() {
+    // Collect cells to eliminate
+    const toEliminate = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (grid[r][c] > 0 && grid[r][c] < minSpawnLevel) {
-          grid[r][c] = 0;
-          renderCell(r, c, 'anim-pop');
-          eliminated = true;
+          toEliminate.push({ row: r, col: c });
         }
       }
     }
-    return eliminated;
+    if (toEliminate.length === 0) return false;
+
+    // Step 1: Sweep flash across board + star particles
+    boardEl.classList.add('sweep-flash');
+    spawnStars(10 + Math.floor(Math.random() * 3)); // 10-12 stars
+    await delay(470);
+    boardEl.classList.remove('sweep-flash');
+
+    // Step 2: Shake the blocks
+    for (const { row, col } of toEliminate) {
+      const cell = cellEls[row][col];
+      const block = cell.querySelector('.block');
+      if (block) block.classList.add('anim-shake');
+    }
+    await delay(320);
+
+    // Step 3: Pop (shrink & disappear) + clear grid
+    for (const { row, col } of toEliminate) {
+      grid[row][col] = 0;
+      renderCell(row, col, 'anim-pop');
+    }
+    await delay(220);
+
+    return true;
+  }
+
+  // ===== Cleanup spawn queue & previews after minSpawnLevel changes =====
+  function cleanupSpawnQueue() {
+    if (nextLevel < minSpawnLevel) {
+      nextLevel = Math.floor(Math.random() * (maxSpawnLevel - minSpawnLevel + 1)) + minSpawnLevel;
+      updateNextPreview();
+    }
+    if (nextNextLevel > 0 && nextNextLevel < minSpawnLevel) {
+      nextNextLevel = Math.floor(Math.random() * (maxSpawnLevel - minSpawnLevel + 1)) + minSpawnLevel;
+      updateNextNextPreview();
+    }
+    spawnQueue = spawnQueue.filter(lv => lv >= minSpawnLevel);
   }
 
   // ===== Gravity: drop all floating blocks down =====
@@ -325,6 +384,9 @@
     score += points;
     if (score > bestScore) bestScore = score;
 
+    // Play merge sound
+    playSound(sfxMerge);
+
     // Remove neighbors
     for (const n of neighbors) {
       grid[n.row][n.col] = 0;
@@ -347,10 +409,13 @@
     let activeRow = startRow;
     let activeCol = startCol;
     let activeLevel = (activeRow >= 0 && activeCol >= 0) ? grid[activeRow][activeCol] : 0;
+    let comboCount = 0;
 
     // Initial merge at placed position
     if (activeRow >= 0 && activeCol >= 0 && tryMerge(activeRow, activeCol)) {
+      comboCount++;
       activeLevel = grid[activeRow][activeCol];
+      triggerComboEffects(activeRow, activeCol, comboCount);
       await delay(180);
     }
 
@@ -382,7 +447,9 @@
       if (activeRow >= 0 && activeCol >= 0 &&
           grid[activeRow][activeCol] > 0 && grid[activeRow][activeCol] < MAX_LEVEL) {
         if (tryMerge(activeRow, activeCol)) {
+          comboCount++;
           activeLevel = grid[activeRow][activeCol];
+          triggerComboEffects(activeRow, activeCol, comboCount);
           merged = true;
           await delay(180);
         }
@@ -404,9 +471,11 @@
           }
         }
         if (bestCount > 0 && tryMerge(bestR, bestC)) {
+          comboCount++;
           activeRow = bestR;
           activeCol = bestC;
           activeLevel = grid[bestR][bestC];
+          triggerComboEffects(bestR, bestC, comboCount);
           merged = true;
           await delay(180);
         }
@@ -422,6 +491,103 @@
     }
 
     updateSpawnRange();
+    return comboCount;
+  }
+
+  // ===== Trigger end-of-chain broadcast + cheer + confetti =====
+  function triggerChainEndEffects(comboCount) {
+    if (comboCount >= 3) showBroadcast(comboCount);
+    if (comboCount >= 4) {
+      playSound(sfxCheer);
+      spawnConfetti(comboCount >= 6 ? 30 : comboCount >= 5 ? 22 : 15);
+    }
+  }
+
+  // ===== Confetti firework burst from board center-top =====
+  const CONFETTI_COLORS = ['#ff4757', '#ff6b81', '#3742fa', '#70a1ff', '#ffa502', '#ffdd59', '#2ed573', '#7bed9f', '#e056fd', '#be2edd'];
+  const CONFETTI_SHAPES = ['confetti-ribbon', 'confetti-dot', 'confetti-squiggle', 'confetti-star'];
+  const CONFETTI_STAR_POOL = [
+    'effects/黄色闪光星星.png', 'effects/蓝色闪光星星.png', 'effects/红色闪光星星.png',
+    'effects/黄色实心星星.png', 'effects/蓝色实心星星.png'
+  ];
+
+  function spawnConfetti(count) {
+    // Board dimensions for origin point
+    var bRect = boardEl.getBoundingClientRect();
+    var originX = bRect.width * 0.5;
+    var originY = bRect.height * 0.15;
+
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      const shape = CONFETTI_SHAPES[Math.floor(Math.random() * CONFETTI_SHAPES.length)];
+      el.className = 'confetti ' + shape;
+
+      // Size
+      let w, h;
+      if (shape === 'confetti-dot') {
+        w = h = 5 + Math.random() * 6;
+      } else if (shape === 'confetti-star') {
+        w = h = 14 + Math.random() * 10;
+        const img = document.createElement('img');
+        img.src = CONFETTI_STAR_POOL[Math.floor(Math.random() * CONFETTI_STAR_POOL.length)];
+        el.appendChild(img);
+      } else {
+        w = 5 + Math.random() * 7;
+        h = 12 + Math.random() * 14;
+      }
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+      if (shape !== 'confetti-star') {
+        el.style.backgroundColor = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+      }
+
+      boardEl.appendChild(el);
+
+      // Physics: explosive initial velocity + gravity
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 180 + Math.random() * 250; // px/s explosive speed
+      let vx = Math.cos(angle) * speed;
+      let vy = Math.sin(angle) * speed - 120; // upward bias for firework arc
+      const gravity = 420 + Math.random() * 150; // px/s^2
+      const rotSpeed = (Math.random() - 0.5) * 800; // deg/s
+      let x = originX;
+      let y = originY;
+      let rot = Math.random() * 360;
+      let opacity = 1;
+      const lifetime = 1.6 + Math.random() * 0.8; // seconds
+      let elapsed = 0;
+      const startDelay = Math.random() * 150; // stagger ms
+      let started = false;
+
+      const startTime = performance.now() + startDelay;
+
+      function tick(now) {
+        if (now < startTime) { requestAnimationFrame(tick); return; }
+        if (!started) { started = true; elapsed = 0; }
+        const dt = 0.016; // ~60fps
+        elapsed += dt;
+        if (elapsed > lifetime) { el.remove(); return; }
+
+        vx *= 0.985; // air friction
+        vy += gravity * dt;
+        x += vx * dt;
+        y += vy * dt;
+        rot += rotSpeed * dt;
+        // Fade out in last 30%
+        if (elapsed > lifetime * 0.7) {
+          opacity = Math.max(0, 1 - (elapsed - lifetime * 0.7) / (lifetime * 0.3));
+        }
+        el.style.transform = 'translate(' + (x - originX) + 'px,' + (y - originY) + 'px) rotate(' + rot + 'deg)';
+        el.style.left = originX + 'px';
+        el.style.top = originY + 'px';
+        el.style.opacity = opacity;
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      // Safety cleanup
+      setTimeout(function () { if (el.parentNode) el.remove(); }, 3500);
+    }
   }
 
   // ===== Eliminate max-level block =====
@@ -440,15 +606,18 @@
     await delay(200);
 
     // Gravity + chain merge (reuse same logic, pass a dummy position)
-    await chainMergeAndGravity(-1, -1);
+    let maxCombo = await chainMergeAndGravity(-1, -1);
 
     // Auto-eliminate blocks below new minSpawnLevel
-    if (eliminateBelowMin()) {
+    if (await eliminateBelowMin()) {
+      cleanupSpawnQueue();
       renderBoard();
       await delay(300);
-      await chainMergeAndGravity(-1, -1);
+      const c2 = await chainMergeAndGravity(-1, -1);
+      if (c2 > maxCombo) maxCombo = c2;
     }
 
+    triggerChainEndEffects(maxCombo);
     saveGame();
     isAnimating = false;
   }
@@ -542,19 +711,25 @@
     if (landRow === 0) {
       grid[0][col] = level;
       renderCell(0, col);
+      playSound(sfxDrop);
       await animateDrop(0, col);
 
+      let maxCombo0 = 0;
       if (grid[1][col] === level) {
         // Merge possible — run chain merge (will merge row-1 into row-0, then gravity)
-        await chainMergeAndGravity(0, col);
+        maxCombo0 = await chainMergeAndGravity(0, col);
       }
 
       // Auto-eliminate blocks below new minSpawnLevel
-      if (eliminateBelowMin()) {
+      if (await eliminateBelowMin()) {
+        cleanupSpawnQueue();
         renderBoard();
         await delay(300);
-        await chainMergeAndGravity(-1, -1);
+        const c2 = await chainMergeAndGravity(-1, -1);
+        if (c2 > maxCombo0) maxCombo0 = c2;
       }
+
+      triggerChainEndEffects(maxCombo0);
 
       // After chain, if buffer still occupied → overflow warning
       if (grid[0][col] !== 0) {
@@ -571,18 +746,23 @@
     // Normal case: land in main area (row >= 1)
     grid[landRow][col] = level;
     renderCell(landRow, col);
+    playSound(sfxDrop);
     await animateDrop(landRow, col);
 
     // Chain merge + gravity
-    await chainMergeAndGravity(landRow, col);
+    let maxCombo = await chainMergeAndGravity(landRow, col);
 
     // Auto-eliminate blocks below new minSpawnLevel (e.g. all 1s disappear when highest reaches 12)
-    if (eliminateBelowMin()) {
+    if (await eliminateBelowMin()) {
+      cleanupSpawnQueue();
       renderBoard();
       await delay(300);
       // Gravity + chain merge after elimination
-      await chainMergeAndGravity(-1, -1);
+      const c2 = await chainMergeAndGravity(-1, -1);
+      if (c2 > maxCombo) maxCombo = c2;
     }
+
+    triggerChainEndEffects(maxCombo);
 
     // Safety: check buffer overflow after chains
     let bufferOccupied = false;
@@ -641,6 +821,8 @@
   // ===== New Game =====
   function newGame() {
     if (brushMode) exitBrushMode();
+    if (hammerMode) exitHammerMode();
+    if (swapMode) exitSwapMode();
     grid = [];
     for (let r = 0; r < ROWS; r++) {
       grid[r] = new Array(COLS).fill(0);
@@ -726,7 +908,7 @@
 
   // ===== Event Handlers =====
   function onArrowClick(e) {
-    if (brushMode) return;
+    if (brushMode || hammerMode || swapMode) return;
     const btn = e.target.closest('.arrow-btn');
     if (!btn) return;
     const col = parseInt(btn.dataset.col);
@@ -743,6 +925,8 @@
   function openHandCardPanel() {
     if (isAnimating || gameOver) return;
     if (brushMode) exitBrushMode();
+    if (hammerMode) exitHammerMode();
+    if (swapMode) exitSwapMode();
 
     handCardSelectedLevel = 0;
     handCardConfirm.disabled = true;
@@ -815,6 +999,8 @@
 
   function enterBrushMode() {
     if (isAnimating || gameOver) return;
+    if (hammerMode) exitHammerMode();
+    if (swapMode) exitSwapMode();
     brushMode = true;
     brushDragging = false;
     brushCenterRow = -1;
@@ -973,8 +1159,24 @@
     brushPointerUp(t.clientX, t.clientY);
   }
 
-  // Cancel brush mode on any click outside board
+  // Cancel brush/hammer/swap mode on any click outside board
   function onDocClickCancelBrush(e) {
+    // Hammer mode: cancel on click outside board
+    if (hammerMode) {
+      if (btnHammer.contains(e.target)) return;
+      if (!boardEl.contains(e.target)) {
+        exitHammerMode();
+      }
+      return;
+    }
+    // Swap mode: cancel on click outside board
+    if (swapMode) {
+      if (btnSwap.contains(e.target)) return;
+      if (!boardEl.contains(e.target)) {
+        exitSwapMode();
+      }
+      return;
+    }
     if (!brushMode) return;
     if (brushDragging) return;
     // Ignore clicks on the brush button itself (handled by onBrushBtnClick)
@@ -1095,23 +1297,347 @@
       await delay(200);
     }
 
-    await chainMergeAndGravity(-1, -1);
+    let maxCombo = await chainMergeAndGravity(-1, -1);
 
-    if (eliminateBelowMin()) {
+    if (await eliminateBelowMin()) {
+      cleanupSpawnQueue();
       renderBoard();
       await delay(300);
-      await chainMergeAndGravity(-1, -1);
+      const c2 = await chainMergeAndGravity(-1, -1);
+      if (c2 > maxCombo) maxCombo = c2;
     }
 
+    triggerChainEndEffects(maxCombo);
     updateSpawnRange();
     saveGame();
     isAnimating = false;
+  }
+
+  // ===== Hammer Feature (锤子) =====
+  const btnHammer = document.getElementById('btn-hammer');
+
+  function enterHammerMode() {
+    if (isAnimating || gameOver) return;
+    if (brushMode) exitBrushMode();
+    if (swapMode) exitSwapMode();
+    hammerMode = true;
+    btnHammer.classList.add('hammer-active');
+    boardEl.classList.add('hammer-mode');
+  }
+
+  function exitHammerMode() {
+    hammerMode = false;
+    btnHammer.classList.remove('hammer-active');
+    boardEl.classList.remove('hammer-mode');
+  }
+
+  function onHammerBtnClick(e) {
+    e.stopPropagation();
+    if (hammerMode) {
+      exitHammerMode();
+      return;
+    }
+    enterHammerMode();
+  }
+
+  async function executeHammer(row, col) {
+    if (grid[row][col] === 0) {
+      exitHammerMode();
+      return;
+    }
+    grid[row][col] = 0;
+    renderCell(row, col, 'anim-pop');
+    exitHammerMode();
+
+    isAnimating = true;
+    await delay(220);
+    applyGravity();
+    renderBoard();
+    await delay(120);
+    let maxCombo = await chainMergeAndGravity(-1, -1);
+
+    if (await eliminateBelowMin()) {
+      cleanupSpawnQueue();
+      renderBoard();
+      await delay(300);
+      const c2 = await chainMergeAndGravity(-1, -1);
+      if (c2 > maxCombo) maxCombo = c2;
+    }
+
+    triggerChainEndEffects(maxCombo);
+    saveGame();
+    isAnimating = false;
+  }
+
+  // ===== Swap Feature (交换) =====
+  const btnSwap = document.getElementById('btn-swap');
+
+  function enterSwapMode() {
+    if (isAnimating || gameOver) return;
+    if (brushMode) exitBrushMode();
+    if (hammerMode) exitHammerMode();
+    swapMode = true;
+    swapFirstCell = null;
+    btnSwap.classList.add('swap-active');
+    boardEl.classList.add('swap-mode');
+  }
+
+  function exitSwapMode() {
+    swapMode = false;
+    // Remove any swap-selected highlight
+    if (swapFirstCell) {
+      cellEls[swapFirstCell.row][swapFirstCell.col].classList.remove('swap-selected');
+    }
+    swapFirstCell = null;
+    btnSwap.classList.remove('swap-active');
+    boardEl.classList.remove('swap-mode');
+  }
+
+  function onSwapBtnClick(e) {
+    e.stopPropagation();
+    if (swapMode) {
+      exitSwapMode();
+      return;
+    }
+    enterSwapMode();
+  }
+
+  async function executeSwap(row1, col1, row2, col2) {
+    // Swap grid values
+    const tmp = grid[row1][col1];
+    grid[row1][col1] = grid[row2][col2];
+    grid[row2][col2] = tmp;
+
+    // Render both with animation
+    renderCell(row1, col1, 'anim-appear');
+    renderCell(row2, col2, 'anim-appear');
+
+    exitSwapMode();
+
+    isAnimating = true;
+    await delay(260);
+    applyGravity();
+    renderBoard();
+    await delay(120);
+    let maxCombo = await chainMergeAndGravity(-1, -1);
+
+    if (await eliminateBelowMin()) {
+      cleanupSpawnQueue();
+      renderBoard();
+      await delay(300);
+      const c2 = await chainMergeAndGravity(-1, -1);
+      if (c2 > maxCombo) maxCombo = c2;
+    }
+
+    triggerChainEndEffects(maxCombo);
+    saveGame();
+    isAnimating = false;
+  }
+
+  // ===== Particle Effects =====
+  // Image asset paths for particle effects
+  const BUBBLE_IMAGES = ['effects/红色气泡.png', 'effects/蓝色气泡.png'];
+  const STAR_GOLD_HOLLOW = ['effects/黄色闪光星星.png'];
+  const STAR_BLUE_RED_HOLLOW = ['effects/蓝色闪光星星.png', 'effects/红色闪光星星.png'];
+  const STAR_ALL_HOLLOW = ['effects/黄色闪光星星.png', 'effects/蓝色闪光星星.png', 'effects/红色闪光星星.png'];
+  const STAR_SOLID = ['effects/黄色实心星星.png', 'effects/蓝色实心星星.png'];
+  const STAR_BLUE_RED_ALL = [...STAR_BLUE_RED_HOLLOW, ...STAR_SOLID];
+  const STAR_ALL = [...STAR_ALL_HOLLOW, ...STAR_SOLID];
+
+  /** Spawn count star particles at random positions inside the board (auto-eliminate) */
+  function spawnStars(count) {
+    for (let i = 0; i < count; i++) {
+      const star = document.createElement('div');
+      star.className = 'star-particle';
+      const img = document.createElement('img');
+      img.src = STAR_ALL[Math.floor(Math.random() * STAR_ALL.length)];
+      const size = 16 + Math.random() * 8; // 16-24px
+      img.style.width = size + 'px';
+      img.style.height = size + 'px';
+      star.appendChild(img);
+      star.style.top = (Math.random() * 80 + 10) + '%';
+      star.style.left = (Math.random() * 80 + 10) + '%';
+      // Slight random delay for stagger
+      star.style.animationDelay = (Math.random() * 250) + 'ms';
+      boardEl.appendChild(star);
+      setTimeout(() => star.remove(), 1300);
+    }
+  }
+
+  /** Spawn bubble particles inside a specific cell */
+  function spawnBubbles(row, col, count) {
+    const cell = cellEls[row][col];
+    for (let i = 0; i < count; i++) {
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble-particle';
+      const img = document.createElement('img');
+      img.src = BUBBLE_IMAGES[Math.floor(Math.random() * BUBBLE_IMAGES.length)];
+      const size = 12 + Math.random() * 8; // 12-20px
+      img.style.width = size + 'px';
+      img.style.height = size + 'px';
+      bubble.appendChild(img);
+      // Start from center, explode outward via CSS vars
+      bubble.style.left = '50%';
+      bubble.style.top = '50%';
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 18 + Math.random() * 22;
+      bubble.style.setProperty('--bx', (Math.cos(angle) * dist) + 'px');
+      bubble.style.setProperty('--by', (Math.sin(angle) * dist) + 'px');
+      bubble.style.animationDelay = (Math.random() * 200) + 'ms';
+      cell.appendChild(bubble);
+      setTimeout(() => bubble.remove(), 1200);
+    }
+  }
+
+  /** Spawn merge stars that burst outward from a cell
+   *  @param {string[]} starPool — array of image paths to randomly pick from
+   */
+  function spawnMergeStars(row, col, count, starPool) {
+    const pool = starPool || STAR_ALL;
+    const cell = cellEls[row][col];
+    for (let i = 0; i < count; i++) {
+      const star = document.createElement('div');
+      star.className = 'merge-star';
+      const img = document.createElement('img');
+      img.src = pool[Math.floor(Math.random() * pool.length)];
+      const size = 18 + Math.random() * 12; // 18-30px
+      img.style.width = size + 'px';
+      img.style.height = size + 'px';
+      star.appendChild(img);
+      star.style.top = '50%';
+      star.style.left = '50%';
+      // Random radial direction — bigger burst radius for explosion feel
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 35 + Math.random() * 45; // increased from 25-60 to 35-80
+      star.style.setProperty('--dx', (Math.cos(angle) * dist) + 'px');
+      star.style.setProperty('--dy', (Math.sin(angle) * dist) + 'px');
+      star.style.animationDelay = (Math.random() * 150) + 'ms';
+      cell.appendChild(star);
+      setTimeout(() => star.remove(), 2800);
+    }
+  }
+
+  /** Spawn a glow effect on a cell */
+  function spawnGlow(row, col) {
+    const cell = cellEls[row][col];
+    const glow = document.createElement('div');
+    glow.className = 'glow-effect';
+    cell.appendChild(glow);
+    setTimeout(() => glow.remove(), 800);
+  }
+
+  /** Show combo text above a cell (image-spliced version) */
+  function showComboText(row, col, comboCount) {
+    const cell = cellEls[row][col];
+    const container = document.createElement('div');
+    container.className = 'combo-text';
+
+    // Determine image height based on combo count
+    let imgHeight;
+    let extraGlow = false;
+    if (comboCount >= 5) {
+      imgHeight = '3.5rem';
+      extraGlow = true;
+    } else if (comboCount === 4) {
+      imgHeight = '3rem';
+    } else if (comboCount === 3) {
+      imgHeight = '2.5rem';
+    } else {
+      imgHeight = '2rem';
+    }
+
+    // Helper: create an img element with consistent styling
+    function makeImg(src) {
+      const img = document.createElement('img');
+      img.src = src;
+      img.style.height = imgHeight;
+      if (extraGlow) {
+        img.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3)) drop-shadow(0 0 12px rgba(255,215,0,0.8))';
+      }
+      return img;
+    }
+
+    // 1. "连击" image
+    container.appendChild(makeImg('effects/连击.png'));
+    // 2. "×" (乘号) image
+    container.appendChild(makeImg('effects/乘号.png'));
+    // 3. Digit images (split comboCount into individual digits)
+    const digits = String(comboCount).split('');
+    for (const d of digits) {
+      container.appendChild(makeImg('effects/' + d + '.png'));
+    }
+
+    cell.appendChild(container);
+    setTimeout(() => container.remove(), 1100);
+  }
+
+  /** Show broadcast image for combo streaks (3+) */
+  function showBroadcast(comboCount) {
+    if (comboCount < 3) return;
+    var src;
+    if (comboCount === 3) {
+      src = 'effects/3次连击.png';
+    } else if (comboCount === 4) {
+      src = 'effects/4次连击.png';
+    } else if (comboCount === 5) {
+      src = 'effects/5次连击.png';
+    } else {
+      src = 'effects/6次及以上连击.png';
+    }
+    var img = document.createElement('img');
+    img.className = 'broadcast-effect';
+    img.src = src;
+    boardEl.appendChild(img);
+    setTimeout(function () { img.remove(); }, 3200);
+  }
+
+  /** Trigger graded combo effects at merge position
+   *  1次合成：气泡 3-4 个
+   *  2次连击：气泡 + 金色空心星 4-5 个
+   *  3-4次连击：气泡 + 金/蓝/红空心星随机 6-8 个 + CSS光晕
+   *  5+次连击：气泡 + 全部星星（空心+实心）随机 8-10 个 + CSS光晕（双重）
+   */
+  function triggerComboEffects(row, col, comboCount) {
+    // Note: broadcast + cheer sound moved to after chainMergeAndGravity completes
+
+    if (comboCount === 1) {
+      // 1次合成：气泡 3-4 个
+      spawnBubbles(row, col, 3 + Math.floor(Math.random() * 2));
+    } else if (comboCount === 2) {
+      // 2次连击：气泡 + 金色空心星 4-5 个
+      spawnBubbles(row, col, 3 + Math.floor(Math.random() * 2));
+      spawnMergeStars(row, col, 4 + Math.floor(Math.random() * 2), STAR_GOLD_HOLLOW);
+      showComboText(row, col, comboCount);
+    } else if (comboCount <= 4) {
+      // 3-4次连击：气泡 + 蓝红星星 6-8 个 + CSS光晕
+      spawnBubbles(row, col, 3 + Math.floor(Math.random() * 2));
+      spawnMergeStars(row, col, 6 + Math.floor(Math.random() * 3), STAR_BLUE_RED_HOLLOW);
+      spawnGlow(row, col);
+      showComboText(row, col, comboCount);
+    } else {
+      // 5+次连击：气泡 + 蓝红全部星星（空心+实心）随机 8-10 个 + CSS光晕（双重）
+      spawnBubbles(row, col, 4 + Math.floor(Math.random() * 2));
+      spawnMergeStars(row, col, 8 + Math.floor(Math.random() * 3), STAR_BLUE_RED_ALL);
+      spawnGlow(row, col);
+      spawnGlow(row, col);
+      showComboText(row, col, comboCount);
+    }
   }
 
   // ===== Init =====
   function init() {
     preloadSkins();
     initBoardDOM();
+
+    // Start BGM on first user interaction (required by iOS autoplay policy)
+    function startBGM() {
+      if (!bgmStarted) {
+        bgmStarted = true;
+        bgm.play().catch(function(){});
+      }
+    }
+    document.addEventListener('click', startBGM, { once: true });
+    document.addEventListener('touchstart', startBGM, { once: true });
 
     // Try to load saved game
     if (loadGame()) {
@@ -1126,12 +1652,52 @@
     // Event listeners — arrows and board both trigger drops
     arrowRow.addEventListener('click', onArrowClick);
     boardEl.addEventListener('click', function (e) {
-      if (brushMode || _brushBlockClick) return;
+      if (_brushBlockClick) return;
+
       const cell = e.target.closest('.cell');
       if (!cell) return;
+      const row = parseInt(cell.dataset.row);
       const col = parseInt(cell.dataset.col);
+      if (isNaN(row) || isNaN(col)) return;
+
+      // Hammer mode: eliminate clicked block
+      if (hammerMode) {
+        if (isAnimating || gameOver) return;
+        executeHammer(row, col);
+        return;
+      }
+
+      // Swap mode: select two blocks to swap
+      if (swapMode) {
+        if (isAnimating || gameOver) return;
+        if (grid[row][col] === 0) {
+          exitSwapMode();
+          return;
+        }
+        if (!swapFirstCell) {
+          // First selection
+          swapFirstCell = { row, col };
+          cellEls[row][col].classList.add('swap-selected');
+          return;
+        }
+        // Second selection
+        if (swapFirstCell.row === row && swapFirstCell.col === col) {
+          // Same cell — cancel
+          exitSwapMode();
+          return;
+        }
+        executeSwap(swapFirstCell.row, swapFirstCell.col, row, col);
+        return;
+      }
+
+      if (brushMode) return;
       if (!isNaN(col)) dropBlock(col);
     });
+
+    // Hammer & Swap button listeners
+    btnHammer.addEventListener('click', onHammerBtnClick);
+    btnSwap.addEventListener('click', onSwapBtnClick);
+
     // Brush event listeners
     btnBrush.addEventListener('click', onBrushBtnClick);
     boardEl.addEventListener('mousedown', onBoardMouseDown);

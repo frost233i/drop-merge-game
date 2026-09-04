@@ -330,7 +330,7 @@ html, body {
 .cell {
   border-radius: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .cell:nth-child(odd) {
@@ -512,6 +512,7 @@ html, body {
 .hand-card-row {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding-top: 10px;
   flex-shrink: 0;
@@ -699,6 +700,75 @@ html, body {
   100% { background: rgba(255, 215, 0, 0.4); }
 }
 
+/* ========== Hammer (锤子) ========== */
+.hand-card-btn.hammer-active {
+  background: linear-gradient(135deg, #e63946, #f07070);
+  box-shadow: 0 0 12px rgba(230, 57, 70, 0.5);
+}
+
+.board.hammer-mode {
+  cursor: crosshair;
+}
+
+/* ========== Swap (交换) ========== */
+.hand-card-btn.swap-active {
+  background: linear-gradient(135deg, #2ec4b6, #50e6d8);
+  box-shadow: 0 0 12px rgba(46, 196, 182, 0.5);
+}
+
+.board.swap-mode {
+  cursor: pointer;
+}
+
+.cell.swap-selected::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 3px solid #3b82f6;
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6), inset 0 0 6px rgba(59, 130, 246, 0.3);
+  z-index: 3;
+  pointer-events: none;
+  animation: swapPulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes swapPulse {
+  0% { box-shadow: 0 0 6px rgba(59, 130, 246, 0.4), inset 0 0 4px rgba(59, 130, 246, 0.2); }
+  100% { box-shadow: 0 0 12px rgba(59, 130, 246, 0.7), inset 0 0 8px rgba(59, 130, 246, 0.4); }
+}
+
+/* ========== Shake animation (auto-eliminate) ========== */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.block.anim-shake {
+  animation: shake 0.3s ease-in-out;
+}
+
+/* ========== Sweep flash (auto-eliminate) ========== */
+.board.sweep-flash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -20%;
+  width: 15%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  z-index: 10;
+  pointer-events: none;
+  animation: sweepFlash 0.45s ease-in-out forwards;
+}
+
+@keyframes sweepFlash {
+  0% { left: -20%; }
+  100% { left: 120%; }
+}
+
 /* ========== Floating score popup ========== */
 .score-popup {
   position: absolute;
@@ -716,6 +786,142 @@ html, body {
   100% { transform: translateY(-40px); opacity: 0; }
 }
 
+/* ========== Star Particles (auto-eliminate flash) ========== */
+.star-particle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  animation: starFloat 0.8s ease-out forwards;
+}
+.star-particle img {
+  display: block;
+}
+@keyframes starFloat {
+  0% { transform: scale(0) translateY(0) rotate(0deg); opacity: 1; }
+  40% { transform: scale(1.4) translateY(-12px) rotate(120deg); opacity: 1; }
+  70% { transform: scale(1.0) translateY(-25px) rotate(240deg); opacity: 0.6; }
+  100% { transform: scale(0.5) translateY(-40px) rotate(360deg); opacity: 0; }
+}
+
+/* ========== Bubble Particles (merge combo) ========== */
+.bubble-particle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  animation: bubbleFloat 1s ease-out forwards;
+}
+.bubble-particle img {
+  display: block;
+}
+@keyframes bubbleFloat {
+  0% { transform: scale(0) translate(0, 0); opacity: 1; }
+  20% { transform: scale(1.4) translate(var(--bx, 8px), var(--by, -10px)); opacity: 0.9; }
+  50% { transform: scale(1.1) translate(calc(var(--bx, 8px) * 1.8), calc(var(--by, -10px) * 1.8)); opacity: 0.7; }
+  80% { transform: scale(0.7) translate(calc(var(--bx, 8px) * 2.2), calc(var(--by, -10px) * 2.2)); opacity: 0.3; }
+  100% { transform: scale(0.4) translate(calc(var(--bx, 8px) * 2.5), calc(var(--by, -10px) * 2.5)); opacity: 0; }
+}
+
+/* ========== Merge Stars (combo burst) ========== */
+.merge-star {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  animation: mergeStarBurst 2.5s ease-out forwards;
+}
+.merge-star img {
+  display: block;
+  filter: brightness(1.3) drop-shadow(0 0 4px rgba(255, 255, 255, 0.9));
+  animation: sparkleFlicker 0.3s ease-in-out infinite alternate;
+}
+@keyframes sparkleFlicker {
+  0% { filter: brightness(1.3) drop-shadow(0 0 4px rgba(255, 255, 255, 0.9)); }
+  100% { filter: brightness(1.8) drop-shadow(0 0 10px rgba(255, 255, 255, 1)); }
+}
+@keyframes mergeStarBurst {
+  0% { transform: scale(0) translate(0, 0) rotate(0deg); opacity: 1; }
+  20% { transform: scale(1.6) translate(calc(var(--dx) * 0.3), calc(var(--dy) * 0.3)) rotate(70deg); opacity: 1; }
+  45% { transform: scale(1.2) translate(calc(var(--dx) * 0.6), calc(var(--dy) * 0.6)) rotate(180deg); opacity: 0.95; }
+  70% { transform: scale(0.8) translate(calc(var(--dx) * 0.85), calc(var(--dy) * 0.85)) rotate(290deg); opacity: 0.6; }
+  100% { transform: scale(0.3) translate(var(--dx), var(--dy)) rotate(380deg); opacity: 0; }
+}
+
+/* ========== Glow Effect (high combo) ========== */
+.glow-effect {
+  position: absolute;
+  inset: -60%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.55) 0%, rgba(255, 165, 0, 0.2) 40%, transparent 70%);
+  pointer-events: none;
+  z-index: 19;
+  animation: glowExpand 0.7s ease-out forwards;
+}
+@keyframes glowExpand {
+  0% { transform: scale(0.3); opacity: 1; }
+  40% { transform: scale(1.2); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* ========== Combo Text ========== */
+.combo-text {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  animation: comboPopup 1s ease-out forwards;
+}
+.combo-text img {
+  height: 2rem;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+@keyframes comboPopup {
+  0% { transform: translateX(-50%) scale(0.3) translateY(0); opacity: 0; }
+  15% { transform: translateX(-50%) scale(1.3) translateY(-5px); opacity: 1; }
+  30% { transform: translateX(-50%) scale(1.0) translateY(-8px); opacity: 1; }
+  70% { transform: translateX(-50%) scale(1.0) translateY(-12px); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0.9) translateY(-30px); opacity: 0; }
+}
+
+/* ========== Broadcast Effect (combo streak banner) ========== */
+.broadcast-effect {
+  position: absolute;
+  top: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  max-width: 240px;
+  pointer-events: none;
+  z-index: 60;
+  animation: broadcastSlam 3.2s ease-out forwards;
+}
+
+@keyframes broadcastSlam {
+  0% { transform: translateX(-50%) scale(1.8); opacity: 0.9; }
+  8% { transform: translateX(-50%) scale(0.8); opacity: 1; }
+  14% { transform: translateX(-50%) scale(0.95); opacity: 1; }
+  20% { transform: translateX(-50%) scale(0.9); opacity: 1; }
+  75% { transform: translateX(-50%) scale(0.9); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0.85); opacity: 0; }
+}
+
+/* ========== Confetti / Firework burst (4+ combo) ========== */
+.confetti {
+  position: absolute;
+  pointer-events: none;
+  z-index: 55;
+}
+.confetti-ribbon { border-radius: 2px; }
+.confetti-dot { border-radius: 50%; }
+.confetti-squiggle { border-radius: 4px 0 4px 0; }
+.confetti-star { background: transparent !important; }
+.confetti-star img { width: 100%; height: 100%; display: block; }
+
 /* ========== Mobile adjustments ========== */
 @media (max-width: 400px) {
   :root {
@@ -731,6 +937,9 @@ html, body {
   .block { font-size: 1rem; }
   .next-block { width: 40px; height: 40px; }
   .next-block-small { width: 30px; height: 30px; }
+  .hand-card-row { gap: 6px; }
+  .hand-card-btn { padding: 6px 12px; font-size: 0.8rem; }
+  .hand-card-icon { font-size: 1rem; }
 }
 
 @media (max-height: 700px) {
