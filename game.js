@@ -26,8 +26,13 @@
   let bgmStarted = false;
 
   function playSound(audio) {
-    audio.currentTime = 0;
-    audio.play().catch(function(){});
+    // Clone to avoid interfering with BGM or other concurrent sounds
+    var clone = audio.cloneNode();
+    clone.volume = audio.volume;
+    clone.play().catch(function(){});
+    // Auto cleanup after playback
+    clone.addEventListener('ended', function() { clone.remove(); });
+    setTimeout(function() { clone.remove(); }, 5000);
   }
 
   // ===== Skin system: preload available skin images =====
