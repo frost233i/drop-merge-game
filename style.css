@@ -311,7 +311,7 @@ html, body {
   border-radius: 0 0 var(--board-radius) var(--board-radius);
   padding: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Dashed judgment line between buffer row (row 0) and main area (rows 1-5) */
@@ -891,14 +891,14 @@ html, body {
 
 /* ========== Broadcast Effect (combo streak banner) ========== */
 .broadcast-effect {
-  position: absolute;
-  top: 20%;
+  position: fixed;
+  top: 35%;
   left: 50%;
   transform: translateX(-50%);
-  width: 55%;
+  width: 50vw;
   max-width: 220px;
   pointer-events: none;
-  z-index: 60;
+  z-index: 200;
   animation: broadcastSlam 3.2s ease-out forwards;
 }
 
