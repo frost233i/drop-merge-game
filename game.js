@@ -1592,7 +1592,9 @@
     var img = document.createElement('img');
     img.className = 'broadcast-effect';
     img.src = src;
-    boardEl.appendChild(img);
+    // Append to game-zone (not board) to avoid overflow:hidden clipping
+    var gameZone = document.querySelector('.game-zone');
+    gameZone.appendChild(img);
     setTimeout(function () { img.remove(); }, 3200);
   }
 
