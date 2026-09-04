@@ -200,6 +200,7 @@ html, body {
   min-height: 0;
   border-radius: var(--tile-radius);
   padding: var(--tile-padding);
+  overflow: visible;
   display: flex;
   flex-direction: column;
   /* Multi-layer: tile grid lines + gradient */
@@ -297,6 +298,7 @@ html, body {
   align-items: flex-start;
   justify-content: center;
   min-height: 0;
+  overflow: visible;
 }
 
 .board {
