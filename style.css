@@ -299,6 +299,17 @@ html, body {
   justify-content: center;
   min-height: 0;
   overflow: visible;
+  position: relative;
+}
+
+#fx-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 30;
 }
 
 .board {
@@ -789,80 +800,6 @@ html, body {
   100% { transform: translateY(-40px); opacity: 0; }
 }
 
-/* ========== Star Particles (auto-eliminate flash) ========== */
-.star-particle {
-  position: absolute;
-  pointer-events: none;
-  z-index: 20;
-  animation: starFloat 0.8s ease-out forwards;
-}
-.star-particle img {
-  display: block;
-}
-@keyframes starFloat {
-  0% { transform: scale(0) translateY(0) rotate(0deg); opacity: 1; }
-  40% { transform: scale(1.4) translateY(-12px) rotate(120deg); opacity: 1; }
-  70% { transform: scale(1.0) translateY(-25px) rotate(240deg); opacity: 0.6; }
-  100% { transform: scale(0.5) translateY(-40px) rotate(360deg); opacity: 0; }
-}
-
-/* ========== Bubble Particles (merge combo) ========== */
-.bubble-particle {
-  position: absolute;
-  pointer-events: none;
-  z-index: 20;
-  animation: bubbleFloat 1s ease-out forwards;
-}
-.bubble-particle img {
-  display: block;
-}
-@keyframes bubbleFloat {
-  0% { transform: scale(0) translate(0, 0); opacity: 1; }
-  20% { transform: scale(1.4) translate(var(--bx, 8px), var(--by, -10px)); opacity: 0.9; }
-  50% { transform: scale(1.1) translate(calc(var(--bx, 8px) * 1.8), calc(var(--by, -10px) * 1.8)); opacity: 0.7; }
-  80% { transform: scale(0.7) translate(calc(var(--bx, 8px) * 2.2), calc(var(--by, -10px) * 2.2)); opacity: 0.3; }
-  100% { transform: scale(0.4) translate(calc(var(--bx, 8px) * 2.5), calc(var(--by, -10px) * 2.5)); opacity: 0; }
-}
-
-/* ========== Merge Stars (combo burst) ========== */
-.merge-star {
-  position: absolute;
-  pointer-events: none;
-  z-index: 20;
-  animation: mergeStarBurst 2.5s ease-out forwards;
-}
-.merge-star img {
-  display: block;
-  filter: brightness(1.2) saturate(1.4);
-  animation: sparkleFlicker 0.3s ease-in-out infinite alternate;
-}
-@keyframes sparkleFlicker {
-  0% { filter: brightness(1.2) saturate(1.4); }
-  100% { filter: brightness(1.6) saturate(1.8); }
-}
-@keyframes mergeStarBurst {
-  0% { transform: scale(0) translate(0, 0) rotate(0deg); opacity: 1; }
-  20% { transform: scale(1.6) translate(calc(var(--dx) * 0.3), calc(var(--dy) * 0.3)) rotate(70deg); opacity: 1; }
-  45% { transform: scale(1.2) translate(calc(var(--dx) * 0.6), calc(var(--dy) * 0.6)) rotate(180deg); opacity: 0.95; }
-  70% { transform: scale(0.8) translate(calc(var(--dx) * 0.85), calc(var(--dy) * 0.85)) rotate(290deg); opacity: 0.6; }
-  100% { transform: scale(0.3) translate(var(--dx), var(--dy)) rotate(380deg); opacity: 0; }
-}
-
-/* ========== Glow Effect (high combo) ========== */
-.glow-effect {
-  position: absolute;
-  inset: -60%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 215, 0, 0.55) 0%, rgba(255, 165, 0, 0.2) 40%, transparent 70%);
-  pointer-events: none;
-  z-index: 19;
-  animation: glowExpand 0.7s ease-out forwards;
-}
-@keyframes glowExpand {
-  0% { transform: scale(0.3); opacity: 1; }
-  40% { transform: scale(1.2); opacity: 0.8; }
-  100% { transform: scale(1.8); opacity: 0; }
-}
 
 /* ========== Combo Text ========== */
 .combo-text {
@@ -912,18 +849,6 @@ html, body {
   75% { transform: translateX(-50%) scale(0.9); opacity: 1; }
   100% { transform: translateX(-50%) scale(0.85); opacity: 0; }
 }
-
-/* ========== Confetti / Firework burst (4+ combo) ========== */
-.confetti {
-  position: absolute;
-  pointer-events: none;
-  z-index: 55;
-}
-.confetti-ribbon { border-radius: 2px; }
-.confetti-dot { border-radius: 50%; }
-.confetti-squiggle { border-radius: 4px 0 4px 0; }
-.confetti-star { background: transparent !important; }
-.confetti-star img { width: 100%; height: 100%; display: block; }
 
 /* ========== Mobile adjustments ========== */
 @media (max-width: 400px) {

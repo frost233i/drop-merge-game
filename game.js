@@ -513,116 +513,208 @@
     }
   }
 
-  // ===== Confetti firework burst from board center-top =====
-  const CONFETTI_COLORS = ['#ff4757', '#ff6b81', '#3742fa', '#70a1ff', '#ffa502', '#ffdd59', '#2ed573', '#7bed9f', '#e056fd', '#be2edd'];
-  const CONFETTI_SHAPES = ['confetti-ribbon', 'confetti-dot', 'confetti-squiggle', 'confetti-star'];
-  const CONFETTI_STAR_POOL = [
-    'effects/黄色闪光星星.png', 'effects/蓝色闪光星星.png', 'effects/红色闪光星星.png',
-    'effects/黄色实心星星.png', 'effects/蓝色实心星星.png'
-  ];
+  // ===== Canvas Particle System =====
+  const fxCanvas = document.getElementById('fx-canvas');
+  const fxCtx = fxCanvas.getContext('2d');
+  var particles = [];
+  var fxRAFRunning = false;
 
-  // Unified confetti particle system — single RAF loop for all particles
-  var confettiParticles = [];
-  var confettiRAFRunning = false;
+  // Preload particle images
+  var fxImages = {};
+  var FX_IMAGE_SRCS = {
+    '红色气泡': 'effects/红色气泡.png',
+    '蓝色气泡': 'effects/蓝色气泡.png',
+    '黄色闪光星星': 'effects/黄色闪光星星.png',
+    '蓝色闪光星星': 'effects/蓝色闪光星星.png',
+    '红色闪光星星': 'effects/红色闪光星星.png',
+    '黄色实心星星': 'effects/黄色实心星星.png',
+    '蓝色实心星星': 'effects/蓝色实心星星.png'
+  };
+  function preloadFxImages() {
+    for (var key in FX_IMAGE_SRCS) {
+      var img = new Image();
+      img.src = FX_IMAGE_SRCS[key];
+      fxImages[key] = img;
+    }
+  }
 
-  function confettiLoop() {
-    if (confettiParticles.length === 0) { confettiRAFRunning = false; return; }
-    var dt = 0.016; // ~60fps
-    var i = confettiParticles.length;
+  // Canvas size sync (call on init and resize)
+  function resizeFxCanvas() {
+    var rect = boardEl.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    fxCanvas.width = rect.width * dpr;
+    fxCanvas.height = rect.height * dpr;
+    fxCanvas.style.width = rect.width + 'px';
+    fxCanvas.style.height = rect.height + 'px';
+    fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // Convert cell row/col to canvas-local coordinates (center of cell)
+  function cellToCanvasPos(row, col) {
+    var cellEl = cellEls[row][col];
+    var boardRect = boardEl.getBoundingClientRect();
+    var cellRect = cellEl.getBoundingClientRect();
+    return {
+      x: cellRect.left - boardRect.left + cellRect.width / 2,
+      y: cellRect.top - boardRect.top + cellRect.height / 2
+    };
+  }
+
+  // Single RAF loop for all canvas particles
+  var lastFxTime = 0;
+  function fxLoop(now) {
+    if (particles.length === 0) {
+      fxRAFRunning = false;
+      var dpr = window.devicePixelRatio || 1;
+      fxCtx.clearRect(0, 0, fxCanvas.width / dpr, fxCanvas.height / dpr);
+      return;
+    }
+    var dt = lastFxTime ? Math.min((now - lastFxTime) / 1000, 0.05) : 0.016;
+    lastFxTime = now;
+
+    var dpr = window.devicePixelRatio || 1;
+    var cw = fxCanvas.width / dpr;
+    var ch = fxCanvas.height / dpr;
+    fxCtx.clearRect(0, 0, cw, ch);
+
+    var i = particles.length;
     while (i--) {
-      var p = confettiParticles[i];
-      // Handle start delay
-      if (p.delayRemaining > 0) {
-        p.delayRemaining -= dt;
-        continue;
-      }
+      var p = particles[i];
+      // Handle delay
+      if (p.delay > 0) { p.delay -= dt; continue; }
+
       p.elapsed += dt;
-      if (p.elapsed > p.lifetime) {
-        if (p.el.parentNode) p.el.remove();
-        confettiParticles.splice(i, 1);
-        continue;
-      }
-      p.vx *= 0.985; // air friction
-      p.vy += p.gravity * dt;
+      if (p.elapsed >= p.lifetime) { particles.splice(i, 1); continue; }
+
+      // Physics update
+      if (p.friction) p.vx *= p.friction;
+      p.vy += (p.gravity || 0) * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.rot += p.rotSpeed * dt;
-      // Fade out in last 30%
-      if (p.elapsed > p.lifetime * 0.7) {
-        p.opacity = Math.max(0, 1 - (p.elapsed - p.lifetime * 0.7) / (p.lifetime * 0.3));
+      p.rotation += (p.rotSpeed || 0) * dt;
+
+      // Scale based on lifetime progress: grow fast → peak → shrink
+      var progress = p.elapsed / p.lifetime;
+      var scale;
+      if (p.scaleMax !== undefined) {
+        if (progress < 0.12) {
+          // Rapid grow to peak
+          scale = p.scaleMax * (progress / 0.12);
+        } else if (progress < 0.3) {
+          // Hold near peak
+          scale = p.scaleMax;
+        } else {
+          // Shrink to scaleEnd
+          scale = p.scaleMax + (p.scaleEnd - p.scaleMax) * ((progress - 0.3) / 0.7);
+        }
+      } else {
+        scale = 1;
       }
-      p.el.style.transform = 'translate(' + (p.x - p.originX) + 'px,' + (p.y - p.originY) + 'px) rotate(' + p.rot + 'deg)';
-      p.el.style.opacity = p.opacity;
+
+      // Fade out in last 30%
+      var alpha = p.opacity;
+      if (progress > 0.7) {
+        alpha *= (1 - (progress - 0.7) / 0.3);
+      }
+
+      // Draw
+      fxCtx.save();
+      fxCtx.globalAlpha = Math.max(0, alpha);
+      fxCtx.translate(p.x, p.y);
+      fxCtx.rotate(p.rotation);
+      fxCtx.scale(scale, scale);
+
+      if (p.img && p.img.complete && p.img.naturalWidth > 0) {
+        fxCtx.drawImage(p.img, -p.size / 2, -p.size / 2, p.size, p.size);
+      } else if (p.color) {
+        fxCtx.fillStyle = p.color;
+        if (p.shape === 'dot') {
+          fxCtx.beginPath();
+          fxCtx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+          fxCtx.fill();
+        } else {
+          // ribbon / squiggle
+          fxCtx.fillRect(-p.width / 2, -p.height / 2, p.width, p.height);
+        }
+      } else if (p.type === 'glow') {
+        // Radial gradient glow
+        var grad = fxCtx.createRadialGradient(0, 0, 0, 0, 0, p.size);
+        grad.addColorStop(0, 'rgba(255, 215, 0, 0.55)');
+        grad.addColorStop(0.4, 'rgba(255, 165, 0, 0.2)');
+        grad.addColorStop(1, 'transparent');
+        fxCtx.fillStyle = grad;
+        fxCtx.beginPath();
+        fxCtx.arc(0, 0, p.size, 0, Math.PI * 2);
+        fxCtx.fill();
+      }
+
+      fxCtx.restore();
     }
-    requestAnimationFrame(confettiLoop);
+
+    requestAnimationFrame(fxLoop);
   }
 
-  function startConfettiLoop() {
-    if (!confettiRAFRunning) {
-      confettiRAFRunning = true;
-      requestAnimationFrame(confettiLoop);
+  function startFxLoop() {
+    if (!fxRAFRunning) {
+      fxRAFRunning = true;
+      lastFxTime = 0;
+      requestAnimationFrame(fxLoop);
     }
   }
+
+  // Confetti colors for canvas confetti
+  var CONFETTI_COLORS = ['#ff4757', '#ff6b81', '#3742fa', '#70a1ff', '#ffa502', '#ffdd59', '#2ed573', '#7bed9f', '#e056fd', '#be2edd'];
+  var CONFETTI_STAR_KEYS = ['黄色闪光星星', '蓝色闪光星星', '红色闪光星星', '黄色实心星星', '蓝色实心星星'];
 
   function spawnConfetti(count) {
-    // Board dimensions for origin point
     var bRect = boardEl.getBoundingClientRect();
     var originX = bRect.width * 0.5;
     var originY = bRect.height * 0.15;
 
-    for (let i = 0; i < count; i++) {
-      const el = document.createElement('div');
-      const shape = CONFETTI_SHAPES[Math.floor(Math.random() * CONFETTI_SHAPES.length)];
-      el.className = 'confetti ' + shape;
+    for (var i = 0; i < count; i++) {
+      var angle = Math.random() * Math.PI * 2;
+      var speed = 180 + Math.random() * 250;
+      var vx = Math.cos(angle) * speed;
+      var vy = Math.sin(angle) * speed - 120;
+      var isStar = Math.random() < 0.25;
 
-      // Size
-      let w, h;
-      if (shape === 'confetti-dot') {
-        w = h = 5 + Math.random() * 6;
-      } else if (shape === 'confetti-star') {
-        w = h = 14 + Math.random() * 10;
-        const img = document.createElement('img');
-        img.src = CONFETTI_STAR_POOL[Math.floor(Math.random() * CONFETTI_STAR_POOL.length)];
-        el.appendChild(img);
+      if (isStar) {
+        var key = CONFETTI_STAR_KEYS[Math.floor(Math.random() * CONFETTI_STAR_KEYS.length)];
+        var sz = 14 + Math.random() * 10;
+        particles.push({
+          type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
+          gravity: 420 + Math.random() * 150, size: sz,
+          rotation: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 14,
+          opacity: 1, lifetime: 1.6 + Math.random() * 0.8, elapsed: 0,
+          img: fxImages[key], friction: 0.985, delay: Math.random() * 0.15
+        });
       } else {
-        w = 5 + Math.random() * 7;
-        h = 12 + Math.random() * 14;
+        var isDot = Math.random() < 0.33;
+        var color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        if (isDot) {
+          particles.push({
+            type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
+            gravity: 420 + Math.random() * 150, size: 5 + Math.random() * 6,
+            rotation: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 14,
+            opacity: 1, lifetime: 1.6 + Math.random() * 0.8, elapsed: 0,
+            color: color, shape: 'dot', friction: 0.985, delay: Math.random() * 0.15
+          });
+        } else {
+          var w = 5 + Math.random() * 7;
+          var h = 12 + Math.random() * 14;
+          particles.push({
+            type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
+            gravity: 420 + Math.random() * 150, size: Math.max(w, h),
+            width: w, height: h,
+            rotation: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 14,
+            opacity: 1, lifetime: 1.6 + Math.random() * 0.8, elapsed: 0,
+            color: color, shape: 'ribbon', friction: 0.985, delay: Math.random() * 0.15
+          });
+        }
       }
-      el.style.width = w + 'px';
-      el.style.height = h + 'px';
-      if (shape !== 'confetti-star') {
-        el.style.backgroundColor = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
-      }
-      el.style.left = originX + 'px';
-      el.style.top = originY + 'px';
-
-      boardEl.appendChild(el);
-
-      // Physics: explosive initial velocity + gravity
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 180 + Math.random() * 250;
-      const vx = Math.cos(angle) * speed;
-      const vy = Math.sin(angle) * speed - 120;
-
-      confettiParticles.push({
-        el: el,
-        x: originX,
-        y: originY,
-        vx: vx,
-        vy: vy,
-        rot: Math.random() * 360,
-        rotSpeed: (Math.random() - 0.5) * 800,
-        gravity: 420 + Math.random() * 150,
-        opacity: 1,
-        lifetime: 1.6 + Math.random() * 0.8,
-        elapsed: 0,
-        delayRemaining: Math.random() * 0.15, // stagger in seconds
-        originX: originX,
-        originY: originY
-      });
     }
 
-    startConfettiLoop();
+    startFxLoop();
   }
 
   // ===== Eliminate max-level block =====
@@ -1469,96 +1561,104 @@
     isAnimating = false;
   }
 
-  // ===== Particle Effects =====
-  // Image asset paths for particle effects
-  const BUBBLE_IMAGES = ['effects/红色气泡.png', 'effects/蓝色气泡.png'];
-  const STAR_GOLD_HOLLOW = ['effects/黄色闪光星星.png'];
-  const STAR_BLUE_RED_HOLLOW = ['effects/蓝色闪光星星.png', 'effects/红色闪光星星.png'];
-  const STAR_ALL_HOLLOW = ['effects/黄色闪光星星.png', 'effects/蓝色闪光星星.png', 'effects/红色闪光星星.png'];
-  const STAR_SOLID = ['effects/黄色实心星星.png', 'effects/蓝色实心星星.png'];
-  const STAR_BLUE_RED_ALL = [...STAR_BLUE_RED_HOLLOW, ...STAR_SOLID];
-  const STAR_ALL = [...STAR_ALL_HOLLOW, ...STAR_SOLID];
+  // ===== Particle Effects (Canvas-based) =====
+  // Star pool keys (referencing fxImages keys instead of file paths)
+  var STAR_GOLD_HOLLOW = ['黄色闪光星星'];
+  var STAR_BLUE_RED_HOLLOW = ['蓝色闪光星星', '红色闪光星星'];
+  var STAR_ALL_HOLLOW = ['黄色闪光星星', '蓝色闪光星星', '红色闪光星星'];
+  var STAR_SOLID = ['黄色实心星星', '蓝色实心星星'];
+  var STAR_BLUE_RED_ALL = ['蓝色闪光星星', '红色闪光星星', '黄色实心星星', '蓝色实心星星'];
+  var STAR_ALL = ['黄色闪光星星', '蓝色闪光星星', '红色闪光星星', '黄色实心星星', '蓝色实心星星'];
+  var BUBBLE_KEYS = ['红色气泡', '蓝色气泡'];
 
-  /** Spawn count star particles at random positions inside the board (auto-eliminate) */
+  /** Spawn star particles at random positions inside the board (auto-eliminate) */
   function spawnStars(count) {
-    for (let i = 0; i < count; i++) {
-      const star = document.createElement('div');
-      star.className = 'star-particle';
-      const img = document.createElement('img');
-      img.src = STAR_ALL[Math.floor(Math.random() * STAR_ALL.length)];
-      const size = 16 + Math.random() * 8; // 16-24px
-      img.style.width = size + 'px';
-      img.style.height = size + 'px';
-      star.appendChild(img);
-      star.style.top = (Math.random() * 80 + 10) + '%';
-      star.style.left = (Math.random() * 80 + 10) + '%';
-      // Slight random delay for stagger
-      star.style.animationDelay = (Math.random() * 250) + 'ms';
-      boardEl.appendChild(star);
-      setTimeout(() => star.remove(), 1300);
+    var bRect = boardEl.getBoundingClientRect();
+    var bw = bRect.width;
+    var bh = bRect.height;
+    for (var i = 0; i < count; i++) {
+      var key = STAR_ALL[Math.floor(Math.random() * STAR_ALL.length)];
+      var size = 16 + Math.random() * 8;
+      var x = bw * (0.1 + Math.random() * 0.8);
+      var y = bh * (0.1 + Math.random() * 0.8);
+      particles.push({
+        type: 'star', x: x, y: y,
+        vx: (Math.random() - 0.5) * 20,
+        vy: -(30 + Math.random() * 40),
+        gravity: 0, size: size,
+        rotation: 0, rotSpeed: (Math.random() - 0.5) * 10,
+        opacity: 1, lifetime: 0.8, elapsed: 0,
+        img: fxImages[key],
+        scaleMax: 1.1, scaleEnd: 0.25,
+        delay: Math.random() * 0.25
+      });
     }
+    startFxLoop();
   }
 
-  /** Spawn bubble particles inside a specific cell */
+  /** Spawn bubble particles from a specific cell center */
   function spawnBubbles(row, col, count) {
-    const cell = cellEls[row][col];
-    for (let i = 0; i < count; i++) {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble-particle';
-      const img = document.createElement('img');
-      img.src = BUBBLE_IMAGES[Math.floor(Math.random() * BUBBLE_IMAGES.length)];
-      const size = 12 + Math.random() * 8; // 12-20px
-      img.style.width = size + 'px';
-      img.style.height = size + 'px';
-      bubble.appendChild(img);
-      // Start from center, explode outward via CSS vars
-      bubble.style.left = '50%';
-      bubble.style.top = '50%';
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 18 + Math.random() * 22;
-      bubble.style.setProperty('--bx', (Math.cos(angle) * dist) + 'px');
-      bubble.style.setProperty('--by', (Math.sin(angle) * dist) + 'px');
-      bubble.style.animationDelay = (Math.random() * 200) + 'ms';
-      cell.appendChild(bubble);
-      setTimeout(() => bubble.remove(), 1200);
+    var pos = cellToCanvasPos(row, col);
+    for (var i = 0; i < count; i++) {
+      var key = BUBBLE_KEYS[Math.floor(Math.random() * BUBBLE_KEYS.length)];
+      var size = 12 + Math.random() * 8;
+      var angle = Math.random() * Math.PI * 2;
+      var speed = 40 + Math.random() * 50;
+      particles.push({
+        type: 'bubble', x: pos.x, y: pos.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        gravity: 0, size: size,
+        rotation: 0, rotSpeed: 0,
+        opacity: 1, lifetime: 1.0, elapsed: 0,
+        img: fxImages[key],
+        scaleMax: 1.0, scaleEnd: 0.25,
+        delay: Math.random() * 0.2
+      });
     }
+    startFxLoop();
   }
 
   /** Spawn merge stars that burst outward from a cell
-   *  @param {string[]} starPool — array of image paths to randomly pick from
+   *  @param {string[]} starPool — array of fxImages keys to randomly pick from
    */
   function spawnMergeStars(row, col, count, starPool) {
-    const pool = starPool || STAR_ALL;
-    const cell = cellEls[row][col];
-    for (let i = 0; i < count; i++) {
-      const star = document.createElement('div');
-      star.className = 'merge-star';
-      const img = document.createElement('img');
-      img.src = pool[Math.floor(Math.random() * pool.length)];
-      const size = 18 + Math.random() * 12; // 18-30px
-      img.style.width = size + 'px';
-      img.style.height = size + 'px';
-      star.appendChild(img);
-      star.style.top = '50%';
-      star.style.left = '50%';
-      // Random radial direction — bigger burst radius for explosion feel
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 35 + Math.random() * 45; // increased from 25-60 to 35-80
-      star.style.setProperty('--dx', (Math.cos(angle) * dist) + 'px');
-      star.style.setProperty('--dy', (Math.sin(angle) * dist) + 'px');
-      star.style.animationDelay = (Math.random() * 150) + 'ms';
-      cell.appendChild(star);
-      setTimeout(() => star.remove(), 2800);
+    var pool = starPool || STAR_ALL;
+    var pos = cellToCanvasPos(row, col);
+    for (var i = 0; i < count; i++) {
+      var key = pool[Math.floor(Math.random() * pool.length)];
+      var size = 18 + Math.random() * 12;
+      var angle = Math.random() * Math.PI * 2;
+      var dist = 35 + Math.random() * 45;
+      var speed = dist / 1.2; // map distance to velocity for ~1.2s travel
+      particles.push({
+        type: 'mergeStar', x: pos.x, y: pos.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        gravity: 0, size: size,
+        rotation: 0, rotSpeed: (Math.random() - 0.5) * 12,
+        opacity: 1, lifetime: 2.5, elapsed: 0,
+        img: fxImages[key],
+        scaleMax: 1.2, scaleEnd: 0.15,
+        delay: Math.random() * 0.15
+      });
     }
+    startFxLoop();
   }
 
-  /** Spawn a glow effect on a cell */
+  /** Spawn a glow effect on a cell (radial gradient, no image) */
   function spawnGlow(row, col) {
-    const cell = cellEls[row][col];
-    const glow = document.createElement('div');
-    glow.className = 'glow-effect';
-    cell.appendChild(glow);
-    setTimeout(() => glow.remove(), 800);
+    var pos = cellToCanvasPos(row, col);
+    particles.push({
+      type: 'glow', x: pos.x, y: pos.y,
+      vx: 0, vy: 0,
+      gravity: 0, size: 60,
+      rotation: 0, rotSpeed: 0,
+      opacity: 0.8, lifetime: 0.7, elapsed: 0,
+      scaleMax: 1.8, scaleEnd: 2.2,
+      delay: 0
+    });
+    startFxLoop();
   }
 
   /** Show combo text above a cell (image-spliced version) */
@@ -1664,6 +1764,9 @@
   function init() {
     preloadSkins();
     initBoardDOM();
+    preloadFxImages();
+    resizeFxCanvas();
+    window.addEventListener('resize', resizeFxCanvas);
 
     // Start BGM on first user interaction (required by iOS autoplay policy)
     function startBGM() {
@@ -1757,11 +1860,11 @@
       }
     });
 
-    // Periodic DOM cleanup: remove stale particle elements to prevent memory buildup
+    // Periodic DOM cleanup: remove stale DOM elements (score popups, combo text)
     setInterval(function() {
-      var stale = boardEl.querySelectorAll('.star-particle, .bubble-particle, .merge-star, .glow-effect, .score-popup, .combo-text');
-      if (stale.length > 50) {
-        for (var i = 0; i < stale.length - 20; i++) {
+      var stale = boardEl.querySelectorAll('.score-popup, .combo-text');
+      if (stale.length > 30) {
+        for (var i = 0; i < stale.length - 10; i++) {
           stale[i].remove();
         }
       }
