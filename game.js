@@ -17,23 +17,28 @@
   const bgm = new Audio('sounds/bgm(2).mp3');
   bgm.loop = true;
   bgm.volume = 0.3;
-  const sfxDrop = new Audio('sounds/下落音效(1).mp3');
-  sfxDrop.volume = 0.6;
-  const sfxMerge = new Audio('sounds/合成音效(1).mp3');
-  sfxMerge.volume = 0.6;
-  const sfxCheer = new Audio('sounds/欢呼声(1).mp3');
-  sfxCheer.volume = 0.7;
   let bgmStarted = false;
 
-  function playSound(audio) {
-    // Clone to avoid interfering with BGM or other concurrent sounds
-    var clone = audio.cloneNode();
-    clone.volume = audio.volume;
-    clone.play().catch(function(){});
-    // Auto cleanup after playback
-    clone.addEventListener('ended', function() { clone.remove(); });
-    setTimeout(function() { clone.remove(); }, 5000);
+  // Sound pool: reuse a fixed set of Audio instances to avoid memory leaks
+  function createSoundPool(src, volume, poolSize) {
+    var pool = [];
+    for (var i = 0; i < poolSize; i++) {
+      var a = new Audio(src);
+      a.volume = volume;
+      pool.push(a);
+    }
+    var index = 0;
+    return function() {
+      var a = pool[index];
+      index = (index + 1) % pool.length;
+      a.currentTime = 0;
+      a.play().catch(function(){});
+    };
   }
+
+  const playSfxDrop = createSoundPool('sounds/下落音效(1).mp3', 0.6, 3);
+  const playSfxMerge = createSoundPool('sounds/合成音效(1).mp3', 0.6, 4);
+  const playSfxCheer = createSoundPool('sounds/欢呼声(1).mp3', 0.7, 2);
 
   // ===== Skin system: preload available skin images =====
   const skinImages = {}; // level -> Image object (only for loaded skins)
@@ -390,7 +395,7 @@
     if (score > bestScore) bestScore = score;
 
     // Play merge sound
-    playSound(sfxMerge);
+    playSfxMerge();
 
     // Remove neighbors
     for (const n of neighbors) {
@@ -503,7 +508,7 @@
   function triggerChainEndEffects(comboCount) {
     if (comboCount >= 3) showBroadcast(comboCount);
     if (comboCount >= 4) {
-      playSound(sfxCheer);
+      playSfxCheer();
       spawnConfetti(comboCount >= 6 ? 30 : comboCount >= 5 ? 22 : 15);
     }
   }
@@ -515,6 +520,49 @@
     'effects/黄色闪光星星.png', 'effects/蓝色闪光星星.png', 'effects/红色闪光星星.png',
     'effects/黄色实心星星.png', 'effects/蓝色实心星星.png'
   ];
+
+  // Unified confetti particle system — single RAF loop for all particles
+  var confettiParticles = [];
+  var confettiRAFRunning = false;
+
+  function confettiLoop() {
+    if (confettiParticles.length === 0) { confettiRAFRunning = false; return; }
+    var dt = 0.016; // ~60fps
+    var i = confettiParticles.length;
+    while (i--) {
+      var p = confettiParticles[i];
+      // Handle start delay
+      if (p.delayRemaining > 0) {
+        p.delayRemaining -= dt;
+        continue;
+      }
+      p.elapsed += dt;
+      if (p.elapsed > p.lifetime) {
+        if (p.el.parentNode) p.el.remove();
+        confettiParticles.splice(i, 1);
+        continue;
+      }
+      p.vx *= 0.985; // air friction
+      p.vy += p.gravity * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += p.rotSpeed * dt;
+      // Fade out in last 30%
+      if (p.elapsed > p.lifetime * 0.7) {
+        p.opacity = Math.max(0, 1 - (p.elapsed - p.lifetime * 0.7) / (p.lifetime * 0.3));
+      }
+      p.el.style.transform = 'translate(' + (p.x - p.originX) + 'px,' + (p.y - p.originY) + 'px) rotate(' + p.rot + 'deg)';
+      p.el.style.opacity = p.opacity;
+    }
+    requestAnimationFrame(confettiLoop);
+  }
+
+  function startConfettiLoop() {
+    if (!confettiRAFRunning) {
+      confettiRAFRunning = true;
+      requestAnimationFrame(confettiLoop);
+    }
+  }
 
   function spawnConfetti(count) {
     // Board dimensions for origin point
@@ -545,54 +593,36 @@
       if (shape !== 'confetti-star') {
         el.style.backgroundColor = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
       }
+      el.style.left = originX + 'px';
+      el.style.top = originY + 'px';
 
       boardEl.appendChild(el);
 
       // Physics: explosive initial velocity + gravity
       const angle = Math.random() * Math.PI * 2;
-      const speed = 180 + Math.random() * 250; // px/s explosive speed
-      let vx = Math.cos(angle) * speed;
-      let vy = Math.sin(angle) * speed - 120; // upward bias for firework arc
-      const gravity = 420 + Math.random() * 150; // px/s^2
-      const rotSpeed = (Math.random() - 0.5) * 800; // deg/s
-      let x = originX;
-      let y = originY;
-      let rot = Math.random() * 360;
-      let opacity = 1;
-      const lifetime = 1.6 + Math.random() * 0.8; // seconds
-      let elapsed = 0;
-      const startDelay = Math.random() * 150; // stagger ms
-      let started = false;
+      const speed = 180 + Math.random() * 250;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed - 120;
 
-      const startTime = performance.now() + startDelay;
-
-      function tick(now) {
-        if (now < startTime) { requestAnimationFrame(tick); return; }
-        if (!started) { started = true; elapsed = 0; }
-        const dt = 0.016; // ~60fps
-        elapsed += dt;
-        if (elapsed > lifetime) { el.remove(); return; }
-
-        vx *= 0.985; // air friction
-        vy += gravity * dt;
-        x += vx * dt;
-        y += vy * dt;
-        rot += rotSpeed * dt;
-        // Fade out in last 30%
-        if (elapsed > lifetime * 0.7) {
-          opacity = Math.max(0, 1 - (elapsed - lifetime * 0.7) / (lifetime * 0.3));
-        }
-        el.style.transform = 'translate(' + (x - originX) + 'px,' + (y - originY) + 'px) rotate(' + rot + 'deg)';
-        el.style.left = originX + 'px';
-        el.style.top = originY + 'px';
-        el.style.opacity = opacity;
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-
-      // Safety cleanup
-      setTimeout(function () { if (el.parentNode) el.remove(); }, 3500);
+      confettiParticles.push({
+        el: el,
+        x: originX,
+        y: originY,
+        vx: vx,
+        vy: vy,
+        rot: Math.random() * 360,
+        rotSpeed: (Math.random() - 0.5) * 800,
+        gravity: 420 + Math.random() * 150,
+        opacity: 1,
+        lifetime: 1.6 + Math.random() * 0.8,
+        elapsed: 0,
+        delayRemaining: Math.random() * 0.15, // stagger in seconds
+        originX: originX,
+        originY: originY
+      });
     }
+
+    startConfettiLoop();
   }
 
   // ===== Eliminate max-level block =====
@@ -716,7 +746,7 @@
     if (landRow === 0) {
       grid[0][col] = level;
       renderCell(0, col);
-      playSound(sfxDrop);
+      playSfxDrop();
       await animateDrop(0, col);
 
       let maxCombo0 = 0;
@@ -751,7 +781,7 @@
     // Normal case: land in main area (row >= 1)
     grid[landRow][col] = level;
     renderCell(landRow, col);
-    playSound(sfxDrop);
+    playSfxDrop();
     await animateDrop(landRow, col);
 
     // Chain merge + gravity
@@ -1726,6 +1756,16 @@
         newGame();
       }
     });
+
+    // Periodic DOM cleanup: remove stale particle elements to prevent memory buildup
+    setInterval(function() {
+      var stale = boardEl.querySelectorAll('.star-particle, .bubble-particle, .merge-star, .glow-effect, .score-popup, .combo-text');
+      if (stale.length > 50) {
+        for (var i = 0; i < stale.length - 20; i++) {
+          stale[i].remove();
+        }
+      }
+    }, 5000);
   }
 
   init();
