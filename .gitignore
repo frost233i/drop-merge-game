@@ -1,0 +1,14 @@
+# 素材源文件夹（桌面原件，不应提交到仓库）
+animal/
+animals/
+合成特效/
+播报特效/
+连击特效/
+音效/
+
+# Netlify
+.netlify/
+
+# OS
+.DS_Store
+Thumbs.db
