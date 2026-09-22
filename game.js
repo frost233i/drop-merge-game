@@ -44,13 +44,24 @@
   const skinImages = {}; // level -> Image object (only for loaded skins)
   const SKIN_PATH = 'skins/';
   function preloadSkins() {
+    // Batch re-renders: multiple images can finish in the same frame,
+    // so coalesce them into a single renderBoard instead of one per image.
+    let pendingRender = false;
+    function scheduleRender() {
+      if (pendingRender) return;
+      pendingRender = true;
+      requestAnimationFrame(function () {
+        pendingRender = false;
+        renderBoard();
+        updateNextPreview();
+        updateNextNextPreview();
+      });
+    }
     for (let lv = 1; lv <= MAX_LEVEL; lv++) {
       const img = new Image();
       img.onload = function () {
         skinImages[lv] = img;
-        renderBoard();
-        updateNextPreview();
-        updateNextNextPreview();
+        scheduleRender();
       };
       img.src = SKIN_PATH + lv + '.png';
     }
@@ -102,6 +113,8 @@
 
   // Cell DOM elements: cellEls[row][col]
   let cellEls = [];
+  // Block DOM elements: blockEls[row][col] (reused to avoid DOM churn)
+  let blockEls = [];
 
   // ===== Color System: HSL-based 44 distinct colors =====
   function getLevelColor(level) {
@@ -123,8 +136,10 @@
   function initBoardDOM() {
     boardEl.innerHTML = '';
     cellEls = [];
+    blockEls = [];
     for (let r = 0; r < ROWS; r++) {
       cellEls[r] = [];
+      blockEls[r] = [];
       for (let c = 0; c < COLS; c++) {
         const cell = document.createElement('div');
         cell.className = 'cell' + (r === 0 ? ' buffer-cell' : '');
@@ -132,6 +147,7 @@
         cell.dataset.col = c;
         boardEl.appendChild(cell);
         cellEls[r][c] = cell;
+        blockEls[r][c] = null;
       }
     }
   }
@@ -140,37 +156,65 @@
   function renderCell(row, col, animClass) {
     const cell = cellEls[row][col];
     const level = grid[row][col];
-    // Remove existing block
-    const existing = cell.querySelector('.block');
-    if (existing) existing.remove();
+    let block = blockEls[row][col];
 
-    if (level > 0) {
-      const block = document.createElement('div');
-      block.className = 'block' + (level >= 10 ? ' level-high' : '');
-      if (animClass) block.classList.add(animClass);
-
-      // Use skin image if available, otherwise fallback to color + number
-      if (skinImages[level]) {
-        block.style.backgroundImage = 'url(' + skinImages[level].src + ')';
-        block.style.backgroundSize = '100% 100%';
-        block.style.backgroundRepeat = 'no-repeat';
-        block.style.backgroundPosition = 'center';
-        block.style.backgroundColor = 'transparent';
-        block.textContent = '';
-      } else {
-        block.style.background = getLevelColor(level);
-        block.style.color = getLevelTextColor(level);
-        block.textContent = level;
+    // Empty cell: remove block if present
+    if (level <= 0) {
+      if (block) {
+        block.remove();
+        blockEls[row][col] = null;
       }
+      return;
+    }
 
-      // Level 44 blocks: click to eliminate
-      if (level === MAX_LEVEL) {
-        block.style.cursor = 'pointer';
-        block.style.boxShadow = '0 0 12px rgba(255,215,0,0.6), 0 2px 8px rgba(0,0,0,0.25)';
-        block.addEventListener('click', () => eliminateMaxBlock(row, col));
-      }
-
+    // Reuse the block element to avoid DOM churn
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'block';
       cell.appendChild(block);
+      blockEls[row][col] = block;
+    }
+
+    // Reset classes, then re-apply animation class (with a reflow so it restarts)
+    block.className = 'block' + (level >= 10 ? ' level-high' : '');
+    if (animClass) {
+      void block.offsetWidth; // force reflow so the animation restarts
+      block.classList.add(animClass);
+    }
+
+    // Use skin image if available, otherwise fallback to color + number
+    if (skinImages[level]) {
+      block.style.backgroundImage = 'url(' + skinImages[level].src + ')';
+      block.style.backgroundSize = '100% 100%';
+      block.style.backgroundRepeat = 'no-repeat';
+      block.style.backgroundPosition = 'center';
+      block.style.backgroundColor = 'transparent';
+      block.textContent = '';
+    } else {
+      block.style.backgroundImage = 'none';
+      block.style.backgroundSize = '';
+      block.style.backgroundRepeat = '';
+      block.style.backgroundPosition = '';
+      block.style.background = getLevelColor(level);
+      block.style.color = getLevelTextColor(level);
+      block.textContent = level;
+    }
+
+    // Level 44 blocks: click to eliminate
+    if (level === MAX_LEVEL) {
+      block.style.cursor = 'pointer';
+      block.style.boxShadow = '0 0 12px rgba(255,215,0,0.6), 0 2px 8px rgba(0,0,0,0.25)';
+      if (!block._eliminateBound) {
+        block._eliminateBound = () => eliminateMaxBlock(row, col);
+        block.addEventListener('click', block._eliminateBound);
+      }
+    } else {
+      block.style.cursor = '';
+      block.style.boxShadow = '';
+      if (block._eliminateBound) {
+        block.removeEventListener('click', block._eliminateBound);
+        block._eliminateBound = null;
+      }
     }
   }
 
@@ -538,15 +582,54 @@
     }
   }
 
+  // Pre-rendered glow sprite (avoids per-frame createRadialGradient)
+  var glowSprite = null;
+  function getGlowSprite() {
+    if (glowSprite) return glowSprite;
+    glowSprite = document.createElement('canvas');
+    glowSprite.width = 128;
+    glowSprite.height = 128;
+    var gctx = glowSprite.getContext('2d');
+    var g = gctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255, 215, 0, 0.55)');
+    g.addColorStop(0.4, 'rgba(255, 165, 0, 0.2)');
+    g.addColorStop(1, 'transparent');
+    gctx.fillStyle = g;
+    gctx.fillRect(0, 0, 128, 128);
+    return glowSprite;
+  }
+
+  // Cap total particles to keep per-frame cost bounded
+  var MAX_PARTICLES = 80;
+  function pushParticle(p) {
+    if (particles.length < MAX_PARTICLES) {
+      particles.push(p);
+    }
+  }
+
   // Canvas size sync (call on init and resize)
   function resizeFxCanvas() {
     var rect = boardEl.getBoundingClientRect();
     var dpr = window.devicePixelRatio || 1;
-    fxCanvas.width = rect.width * dpr;
-    fxCanvas.height = rect.height * dpr;
+    var w = Math.round(rect.width * dpr);
+    var h = Math.round(rect.height * dpr);
+    // Skip reallocation unless the size actually changed (realloc is expensive)
+    if (fxCanvas.width === w && fxCanvas.height === h) return;
+    fxCanvas.width = w;
+    fxCanvas.height = h;
     fxCanvas.style.width = rect.width + 'px';
     fxCanvas.style.height = rect.height + 'px';
     fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // Debounce resize — iOS fires it often (URL bar, rotation), and each realloc janks
+  var resizeTimer = null;
+  function onResizeFx() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      resizeTimer = null;
+      resizeFxCanvas();
+    }, 150);
   }
 
   // Convert cell row/col to canvas-local coordinates (center of cell)
@@ -637,15 +720,8 @@
           fxCtx.fillRect(-p.width / 2, -p.height / 2, p.width, p.height);
         }
       } else if (p.type === 'glow') {
-        // Radial gradient glow
-        var grad = fxCtx.createRadialGradient(0, 0, 0, 0, 0, p.size);
-        grad.addColorStop(0, 'rgba(255, 215, 0, 0.55)');
-        grad.addColorStop(0.4, 'rgba(255, 165, 0, 0.2)');
-        grad.addColorStop(1, 'transparent');
-        fxCtx.fillStyle = grad;
-        fxCtx.beginPath();
-        fxCtx.arc(0, 0, p.size, 0, Math.PI * 2);
-        fxCtx.fill();
+        // Radial gradient glow (pre-rendered sprite)
+        fxCtx.drawImage(getGlowSprite(), -p.size, -p.size, p.size * 2, p.size * 2);
       }
 
       fxCtx.restore();
@@ -681,7 +757,7 @@
       if (isStar) {
         var key = CONFETTI_STAR_KEYS[Math.floor(Math.random() * CONFETTI_STAR_KEYS.length)];
         var sz = 14 + Math.random() * 10;
-        particles.push({
+        pushParticle({
           type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
           gravity: 420 + Math.random() * 150, size: sz,
           rotation: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 14,
@@ -692,7 +768,7 @@
         var isDot = Math.random() < 0.33;
         var color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
         if (isDot) {
-          particles.push({
+          pushParticle({
             type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
             gravity: 420 + Math.random() * 150, size: 5 + Math.random() * 6,
             rotation: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 14,
@@ -702,7 +778,7 @@
         } else {
           var w = 5 + Math.random() * 7;
           var h = 12 + Math.random() * 14;
-          particles.push({
+          pushParticle({
             type: 'confetti', x: originX, y: originY, vx: vx, vy: vy,
             gravity: 420 + Math.random() * 150, size: Math.max(w, h),
             width: w, height: h,
@@ -916,6 +992,7 @@
     try {
       localStorage.setItem(STORAGE_KEY + '_best', String(bestScore));
     } catch (e) { /* ignore */ }
+    cancelPendingSave();
     localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -972,7 +1049,7 @@
   }
 
   // ===== Save / Load =====
-  function saveGame() {
+  function writeSave() {
     const data = {
       grid: grid,
       score: score,
@@ -986,6 +1063,31 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { /* ignore */ }
+  }
+
+  // Debounce saves so the synchronous localStorage write doesn't jank every move
+  let saveTimer = null;
+  function saveGame() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(function () {
+      saveTimer = null;
+      writeSave();
+    }, 250);
+  }
+
+  function flushSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    writeSave();
+  }
+
+  function cancelPendingSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
   }
 
   function loadGame() {
@@ -1581,7 +1683,7 @@
       var size = 16 + Math.random() * 8;
       var x = bw * (0.1 + Math.random() * 0.8);
       var y = bh * (0.1 + Math.random() * 0.8);
-      particles.push({
+      pushParticle({
         type: 'star', x: x, y: y,
         vx: (Math.random() - 0.5) * 20,
         vy: -(30 + Math.random() * 40),
@@ -1604,7 +1706,7 @@
       var size = 12 + Math.random() * 8;
       var angle = Math.random() * Math.PI * 2;
       var speed = 40 + Math.random() * 50;
-      particles.push({
+      pushParticle({
         type: 'bubble', x: pos.x, y: pos.y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
@@ -1631,7 +1733,7 @@
       var angle = Math.random() * Math.PI * 2;
       var dist = 35 + Math.random() * 45;
       var speed = dist / 1.2; // map distance to velocity for ~1.2s travel
-      particles.push({
+      pushParticle({
         type: 'mergeStar', x: pos.x, y: pos.y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
@@ -1649,7 +1751,7 @@
   /** Spawn a glow effect on a cell (radial gradient, no image) */
   function spawnGlow(row, col) {
     var pos = cellToCanvasPos(row, col);
-    particles.push({
+    pushParticle({
       type: 'glow', x: pos.x, y: pos.y,
       vx: 0, vy: 0,
       gravity: 0, size: 60,
@@ -1766,7 +1868,13 @@
     initBoardDOM();
     preloadFxImages();
     resizeFxCanvas();
-    window.addEventListener('resize', resizeFxCanvas);
+    window.addEventListener('resize', onResizeFx);
+
+    // Flush any pending save when the page is hidden/closed so no progress is lost
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) flushSave();
+    });
+    window.addEventListener('pagehide', flushSave);
 
     // Start BGM on first user interaction (required by iOS autoplay policy)
     function startBGM() {
